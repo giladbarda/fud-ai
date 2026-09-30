@@ -1,14 +1,41 @@
+name: iOS Build Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
 jobs:
   test:
-    runs-on: macos-26          # ← במקום macos-15
+    runs-on: macos-latest
+    timeout-minutes: 60
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show available Xcodes
-        run: ls /Applications | grep -i xcode
+      - name: Environment info
+        run: |
+          echo "=== macOS ==="
+          sw_vers
+          echo "=== Xcode installs ==="
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "none found"
+          echo "=== Current ==="
+          xcodebuild -version
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - name: Select newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Selecting: $NEWEST"
+          sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+
+      - name: Discover project
+        run: |
+          echo "=== Project files ==="
+          find . -maxdepth 3 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) \
+            -not -path "*/.git/*"
+          echo "=== Schemes ==="
+          cd ios && xcodebuild -list -project calorietracker.xcodeproj
 
       - name: Build
         run: |
@@ -18,12 +45,24 @@ jobs:
             -project calorietracker.xcodeproj \
             -scheme calorietracker \
             -destination generic/platform=iOS \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | tee /tmp/build.log
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee /tmp/build.log
 
-      - name: Errors
+      - name: Extract errors
         if: failure()
-        run: grep -n -B2 -A5 "error:" /tmp/build.log || tail -300 /tmp/build.log
+        run: |
+          echo "=============== ERRORS ==============="
+          grep -n -B2 -A6 "error:" /tmp/build.log | head -200 \
+            || echo "(no 'error:' lines found)"
+          echo "=============== TAIL ================="
+          tail -150 /tmp/build.log
 
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: log, path: /tmp/build.log }
+        with:
+          name: build-log
+          path: /tmp/build.log
+          retention-days: 7
