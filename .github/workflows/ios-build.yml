@@ -1,0 +1,36 @@
+name: iOS Build
+
+on:
+  workflow_dispatch: # מאפשר לך להפעיל את הבנייה ידנית בלחיצת כפתור מתי שתרצה
+
+jobs:
+  build:
+    name: Build iOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build App
+        run: |
+          cd ios # כניסה לתיקיית ios כפי שמופיעה בעץ הקבצים
+          # ייתכן שתצטרך לשנות את "App.xcodeproj" ואת ה-scheme בהתאם לשמות הקבצים בתוך תיקיית ה-ios שלך
+          xcodebuild clean build \
+            -project "App.xcodeproj" \
+            -scheme "App" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+            
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app-build
+          path: ios/build/Release-iphoneos/
