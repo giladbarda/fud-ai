@@ -1,7 +1,7 @@
 name: iOS Build
 
 on:
-  workflow_dispatch: # מאפשר לך להפעיל את הבנייה ידנית בלחיצת כפתור מתי שתרצה
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,11 +19,10 @@ jobs:
 
       - name: Build App
         run: |
-          cd ios # כניסה לתיקיית ios כפי שמופיעה בעץ הקבצים
-          # ייתכן שתצטרך לשנות את "App.xcodeproj" ואת ה-scheme בהתאם לשמות הקבצים בתוך תיקיית ה-ios שלך
+          cd ios
           xcodebuild clean build \
-            -project "App.xcodeproj" \
-            -scheme "App" \
+            -project "calorietracker.xcodeproj" \
+            -scheme "calorietracker" \
             -destination "generic/platform=iOS" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
