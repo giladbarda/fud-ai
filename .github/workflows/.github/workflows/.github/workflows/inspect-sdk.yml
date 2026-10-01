@@ -1,0 +1,35 @@
+name: Inspect FoundationModels SDK
+on: workflow_dispatch
+
+jobs:
+  inspect:
+    runs-on: macos-latest
+    steps:
+      - name: Xcode version
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcodebuild -version
+
+      - name: Dump FoundationModels interface
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          IFACE=$(find "$SDK/System/Library/Frameworks/FoundationModels.framework" \
+                  -name "*.swiftinterface" | head -1)
+          echo "Interface: $IFACE"
+          cp "$IFACE" /tmp/FoundationModels.swiftinterface
+
+          echo "========== ATTACHMENT / IMAGE =========="
+          grep -nE "Attachment|PromptImage|ImageContent|CGImage|UIImage" \
+            "$IFACE" | head -40
+
+          echo "========== RESPONSE CONTENT TYPE =========="
+          grep -nE "struct Response|var content|associatedtype Content" \
+            "$IFACE" | head -20
+
+          echo "========== AVAILABILITY ENUM =========="
+          grep -nE -A8 "enum Availability" "$IFACE" | head -30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-interface
+          path: /tmp/FoundationModels.swiftinterface
