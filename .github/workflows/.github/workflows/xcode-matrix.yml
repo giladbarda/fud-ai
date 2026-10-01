@@ -1,0 +1,52 @@
+name: Find Working Xcode
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        xcode: ['26.0', '26.1', '26.2', '26.3', '26.4', '26.5', '26.6']
+    name: Xcode ${{ matrix.xcode }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ matrix.xcode }}
+        run: |
+          sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode }}.app
+          xcodebuild -version
+
+      - name: Check FoundationModels API
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          FM="$SDK/System/Library/Frameworks/FoundationModels.framework"
+          IFACE=$(find "$FM" -name "*.swiftinterface" 2>/dev/null | head -1)
+          if [ -n "$IFACE" ]; then
+            echo "--- Attachment? ---"
+            grep -c "Attachment" "$IFACE" || echo "0"
+            echo "--- image-related types ---"
+            grep -oE "(struct|enum|init)[[:space:]]+[A-Za-z]*(Attachment|Image)[A-Za-z]*" \
+              "$IFACE" | sort -u | head -20
+          else
+            echo "no swiftinterface found"
+          fi
+
+      - name: Build
+        run: |
+          cd ios
+          set -o pipefail
+          xcodebuild build \
+            -project calorietracker.xcodeproj \
+            -scheme calorietracker \
+            -configuration Debug \
+            -destination generic/platform=iOS \
+            -skipMacroValidation -skipPackagePluginValidation \
+            SWIFT_COMPILATION_MODE=incremental \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee /tmp/b.log
+
+      - name: Errors
+        if: failure()
+        run: grep -n "error:" /tmp/b.log | head -30 || echo "none"
