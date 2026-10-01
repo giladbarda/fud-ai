@@ -231,3 +231,7 @@ struct OnDeviceFoodService {
             servingUnitOptions: unitOptions,
             selectedServingUnit: selectedOption?.unit,
             selectedServingQuantity: selectedOption.map { $0.quantity(for: r.servingSizeGrams) }
+        )
+    }
+}
+#endif
