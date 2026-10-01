@@ -210,11 +210,6 @@ struct ChatService {
         throw ChatError.apiError("Apple Intelligence requires iOS 26 or later on a supported iPhone.")
     }
     // MARK: - System prompt builder
-    /// Slim prompt: identity + profile + formulas + forecast summary + a short
-    /// "data available" snapshot + tool-use guidance. Bulk history dumps are
-    /// gone — Coach calls tools when it actually needs older data, so token
-    /// cost per message stays low and Coach can reach **all** of the user's
-    /// history (not just the previously-hardcoded last 10/14 entries).
     private static func buildSystemPrompt(
         profile: UserProfile,
         weights: [WeightEntry],
@@ -344,7 +339,6 @@ struct ChatService {
         return lines.joined(separator: "\n")
     }
     // MARK: - OpenAI-compatible (/chat/completions) — covers 10 of 13 providers
-    /// OpenAI-style tool schema: each tool is `{"type":"function","function":{name, description, parameters}}`.
     private static func openAIToolsArray(for tools: CoachTools) -> [[String: Any]] {
         tools.availableToolNames.map { name -> [String: Any] in
             [
@@ -418,10 +412,7 @@ struct ChatService {
                     throw ChatError.apiError("The AI response was truncated twice. Try a shorter question or another model.")
                 }
             }
-            // Tool calls take precedence — if present, run them and loop.
             if let toolCalls = message["tool_calls"] as? [[String: Any]], !toolCalls.isEmpty {
-                // Append the assistant's tool-call message verbatim so the
-                // next turn knows which tool_call_ids to respond to.
                 messages.append(message)
                 for call in toolCalls {
                     guard let function = call["function"] as? [String: Any],
@@ -455,9 +446,6 @@ struct ChatService {
         ]
     }
     // MARK: - Anthropic Messages API
-    /// Anthropic tool schema: `{name, description, input_schema}`. Tool calls
-    /// arrive as `tool_use` content blocks; results go back as `tool_result`
-    /// blocks within a user message.
     private static func anthropicToolsArray(for tools: CoachTools) -> [[String: Any]] {
         tools.availableToolNames.map { name -> [String: Any] in
             [
@@ -501,13 +489,8 @@ struct ChatService {
             else {
                 throw ChatError.invalidResponse
             }
-            // Anthropic returns "stop_reason": "tool_use" alongside content blocks
-            // mixing text + tool_use. Run all tool_use blocks, append their
-            // results, and loop.
             let toolUses = contentArray.filter { ($0["type"] as? String) == "tool_use" }
             if !toolUses.isEmpty {
-                // Echo the assistant's full content array back so Anthropic
-                // can pair tool_result blocks to their tool_use ids.
                 messages.append(["role": "assistant", "content": contentArray])
                 var toolResults: [[String: Any]] = []
                 for use in toolUses {
@@ -523,7 +506,6 @@ struct ChatService {
                 messages.append(["role": "user", "content": toolResults])
                 continue
             }
-            // No tool calls → first text block is the answer.
             if let firstText = contentArray.first(where: { ($0["type"] as? String) == "text" }),
                let text = firstText["text"] as? String {
                 return text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -546,8 +528,6 @@ struct ChatService {
         ]
     }
     // MARK: - Gemini (v1beta generateContent with system_instruction + tools)
-    /// Gemini tool schema: `{"functionDeclarations": [{name, description, parameters}]}`
-    /// where parameters use OpenAPI type names (object/string/integer).
     private static func geminiToolsObject(for tools: CoachTools) -> [String: Any] {
         let declarations: [[String: Any]] = tools.availableToolNames.map { name in
             [
@@ -558,9 +538,6 @@ struct ChatService {
         }
         return ["functionDeclarations": declarations]
     }
-    /// Gemini 3 models attach an identifier to every function call. The matching
-    /// response must echo that identifier so parallel and multi-round calls are
-    /// associated with the correct result.
     static func geminiFunctionResponsePart(
         for call: [String: Any],
         result: Any
@@ -607,12 +584,8 @@ struct ChatService {
             else {
                 throw ChatError.invalidResponse
             }
-            // Function calls + plain text can both appear. Run any function
-            // calls and loop; otherwise concatenate text and return.
             let functionCalls = parts.compactMap { $0["functionCall"] as? [String: Any] }
             if !functionCalls.isEmpty {
-                // Echo the model's full parts back so Gemini sees its own
-                // function call when matching responses.
                 contents.append(["role": "model", "parts": parts])
                 var responseParts: [[String: Any]] = []
                 for call in functionCalls {
@@ -802,7 +775,6 @@ struct ChatService {
         }
         for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        // Retry transient overload responses (503/429/529) with exponential backoff: 1s, 2s, 4s.
         let retryDelaysNs: [UInt64] = [1_000_000_000, 2_000_000_000, 4_000_000_000]
         var lastError: ChatError = .apiError("Request failed")
         for attempt in 0...retryDelaysNs.count {
@@ -839,4 +811,22 @@ struct ChatService {
         return nil
     }
     private static func friendlyMessage(for status: Int, raw: String) -> String {
-        let keyRejected = "Your API key was rejected.
+        let keyRejected = "Your API key was rejected. Open Settings → AI Provider and re-paste a valid key."
+        let hasKeyInvalidMarker = raw.range(of: "api key not valid", options: .caseInsensitive) != nil
+            || raw.range(of: "api_key_invalid", options: .caseInsensitive) != nil
+            || raw.range(of: "api key expired", options: .caseInsensitive) != nil
+            || raw.range(of: "api_key_expired", options: .caseInsensitive) != nil
+        switch status {
+        case 503, 529:
+            return "The AI provider is overloaded right now. We retried a few times — please try again in a minute, or switch to a different provider/model in Settings → AI Provider."
+        case 429:
+            return "Rate limit hit on your API key. Wait a minute, or switch to another provider in Settings → AI Provider."
+        case 400 where hasKeyInvalidMarker:
+            return keyRejected
+        case 401, 403:
+            return keyRejected
+        default:
+            return raw
+        }
+    }
+}
